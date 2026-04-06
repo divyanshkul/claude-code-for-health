@@ -1,99 +1,44 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-#
-# This source code is licensed under the BSD-style license found in the
-# LICENSE file in the root directory of this source tree.
-
-"""Claude Code For Health Environment Client."""
+"""Client for the Claude Code for Health environment."""
 
 from typing import Dict
 
 from openenv.core import EnvClient
 from openenv.core.client_types import StepResult
-from openenv.core.env_server.types import State
-
-from .models import ClaudeCodeForHealthAction, ClaudeCodeForHealthObservation
+from .models import MedAction, MedObservation, MedState
 
 
 class ClaudeCodeForHealthEnv(
-    EnvClient[ClaudeCodeForHealthAction, ClaudeCodeForHealthObservation, State]
+    EnvClient[MedAction, MedObservation, MedState]
 ):
-    """
-    Client for the Claude Code For Health Environment.
+    def _step_payload(self, action: MedAction) -> Dict:
+        return {"command": action.command}
 
-    This client maintains a persistent WebSocket connection to the environment server,
-    enabling efficient multi-step interactions with lower latency.
-    Each client instance has its own dedicated environment session on the server.
-
-    Example:
-        >>> # Connect to a running server
-        >>> with ClaudeCodeForHealthEnv(base_url="http://localhost:8000") as client:
-        ...     result = client.reset()
-        ...     print(result.observation.echoed_message)
-        ...
-        ...     result = client.step(ClaudeCodeForHealthAction(message="Hello!"))
-        ...     print(result.observation.echoed_message)
-
-    Example with Docker:
-        >>> # Automatically start container and connect
-        >>> client = ClaudeCodeForHealthEnv.from_docker_image("claude_code_for_health-env:latest")
-        >>> try:
-        ...     result = client.reset()
-        ...     result = client.step(ClaudeCodeForHealthAction(message="Test"))
-        ... finally:
-        ...     client.close()
-    """
-
-    def _step_payload(self, action: ClaudeCodeForHealthAction) -> Dict:
-        """
-        Convert ClaudeCodeForHealthAction to JSON payload for step message.
-
-        Args:
-            action: ClaudeCodeForHealthAction instance
-
-        Returns:
-            Dictionary representation suitable for JSON encoding
-        """
-        return {
-            "message": action.message,
-        }
-
-    def _parse_result(self, payload: Dict) -> StepResult[ClaudeCodeForHealthObservation]:
-        """
-        Parse server response into StepResult[ClaudeCodeForHealthObservation].
-
-        Args:
-            payload: JSON response data from server
-
-        Returns:
-            StepResult with ClaudeCodeForHealthObservation
-        """
+    def _parse_result(self, payload: Dict) -> StepResult[MedObservation]:
         obs_data = payload.get("observation", {})
-        observation = ClaudeCodeForHealthObservation(
-            echoed_message=obs_data.get("echoed_message", ""),
-            message_length=obs_data.get("message_length", 0),
+        observation = MedObservation(
+            output=obs_data.get("output", ""),
+            error=obs_data.get("error", ""),
+            available_commands=obs_data.get("available_commands", []),
+            task_type=obs_data.get("task_type", ""),
+            step_number=obs_data.get("step_number", 0),
+            max_steps=obs_data.get("max_steps", 50),
             done=payload.get("done", False),
             reward=payload.get("reward"),
             metadata=obs_data.get("metadata", {}),
         )
-
         return StepResult(
             observation=observation,
             reward=payload.get("reward"),
             done=payload.get("done", False),
         )
 
-    def _parse_state(self, payload: Dict) -> State:
-        """
-        Parse server response into State object.
-
-        Args:
-            payload: JSON response from state request
-
-        Returns:
-            State object with episode_id and step_count
-        """
-        return State(
+    def _parse_state(self, payload: Dict) -> MedState:
+        return MedState(
             episode_id=payload.get("episode_id"),
             step_count=payload.get("step_count", 0),
+            task_type=payload.get("task_type", ""),
+            difficulty=payload.get("difficulty", "easy"),
+            total_score=payload.get("total_score", 0.0),
+            commands_issued=payload.get("commands_issued", 0),
+            is_submitted=payload.get("is_submitted", False),
         )
