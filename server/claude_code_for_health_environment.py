@@ -607,8 +607,15 @@ class ClaudeCodeForHealthEnvironment(Environment):
         formatted = []
         for line in lines:
             line = line.strip()
-            if line:
-                formatted.append(f"[{line[0]}] {line[1:].strip()}" if line[0].isdigit() else line)
+            if not line:
+                continue
+            parts = line.split(None, 1)
+            if parts[0].isdigit():
+                sid = parts[0]
+                text = parts[1] if len(parts) > 1 else ""
+                formatted.append(f"[{sid}] {text}")
+            else:
+                formatted.append(line)
         return "\n".join(formatted)
 
     @staticmethod
