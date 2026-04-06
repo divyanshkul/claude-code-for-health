@@ -504,6 +504,8 @@ class ClaudeCodeForHealthEnvironment(Environment):
         return 0.0
 
     def _obs(self, output: str, reward: float = 0.0, done: bool = False, error: str = "") -> MedObservation:
+        if not done and self._task_type:
+            output = output + "\n\n" + self._status_footer()
         return MedObservation(
             output=output,
             error=error,
@@ -514,6 +516,26 @@ class ClaudeCodeForHealthEnvironment(Environment):
             done=done,
             reward=reward,
         )
+
+    def _status_footer(self) -> str:
+        step_info = f"Step: {self._state.step_count}/{self._max_steps}"
+
+        if self._task_type == "diagnosis":
+            ddx = ", ".join(self._ddx_list) if self._ddx_list else "empty"
+            accessed = ", ".join(sorted(self._accessed_sections)) if self._accessed_sections else "none"
+            return f"[STATUS] DDX: [{ddx}] | Accessed: {accessed} | {step_info}"
+
+        if self._task_type == "calculation":
+            read = "yes" if self._case_read else "no"
+            calc = self._calculator_used or "none"
+            return f"[STATUS] Case read: {read} | Calculator: {calc} | {step_info}"
+
+        if self._task_type == "note_review":
+            read = "yes" if self._note_read else "no"
+            corr = str(dict(self._corrections)) if self._corrections else "none"
+            return f"[STATUS] Note read: {read} | Corrections: {corr} | {step_info}"
+
+        return f"[STATUS] {step_info}"
 
     # ------------------------------------------------------------------
     # Formatting helpers
