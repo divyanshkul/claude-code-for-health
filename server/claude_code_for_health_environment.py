@@ -36,6 +36,9 @@ VALID_DIAGNOSIS_CMDS = {
 VALID_CALCULATION_CMDS = {"case.read", "calculate", "submit", "help"}
 VALID_NOTE_CMDS = {"note.read", "note.correct", "note.approve", "help"}
 
+PROTOCOL_PENALTY = -0.05
+SPECIALIZED_LAB_PANELS = {"abg", "coags", "coagulation", "cultures", "cytology"}
+
 
 class ClaudeCodeForHealthEnvironment(Environment):
     SUPPORTS_CONCURRENT_SESSIONS: bool = True
@@ -188,16 +191,17 @@ class ClaudeCodeForHealthEnvironment(Environment):
 
     def _dispatch_diagnosis(self, cmd: str, args: list[str]) -> tuple[str, float, bool]:
         extracted = self._task_data.get("extracted", {})
+        penalty, warning = self._check_prerequisites(cmd, args)
 
         if cmd == "chart.history":
             output = self._format_history(extracted.get("history", {}))
-            reward = graders.diagnosis_step_reward(cmd, args, self._accessed_sections, self._relevant_sections)
-            return output, reward, False
+            reward = graders.diagnosis_step_reward(cmd, args, self._accessed_sections, self._relevant_sections) + penalty
+            return (output + warning), reward, False
 
         if cmd == "chart.vitals":
             output = self._format_vitals(extracted.get("vitals", {}))
-            reward = graders.diagnosis_step_reward(cmd, args, self._accessed_sections, self._relevant_sections)
-            return output, reward, False
+            reward = graders.diagnosis_step_reward(cmd, args, self._accessed_sections, self._relevant_sections) + penalty
+            return (output + warning), reward, False
 
         if cmd == "chart.labs":
             labs = extracted.get("labs", {})
@@ -211,8 +215,8 @@ class ClaudeCodeForHealthEnvironment(Environment):
             if matched_panel is None:
                 return f"Lab panel '{panel_name}' not available. Use 'chart.labs' to list panels.", 0.0, False
             output = self._format_dict(labs[matched_panel], title=matched_panel)
-            reward = graders.diagnosis_step_reward(cmd, [matched_panel.lower()], self._accessed_sections, self._relevant_sections)
-            return output, reward, False
+            reward = graders.diagnosis_step_reward(cmd, [matched_panel.lower()], self._accessed_sections, self._relevant_sections) + penalty
+            return (output + warning), reward, False
 
         if cmd == "chart.imaging":
             imaging = extracted.get("imaging", {})
@@ -226,8 +230,8 @@ class ClaudeCodeForHealthEnvironment(Environment):
             if matched is None:
                 return f"Imaging '{modality}' not available. Use 'chart.imaging' to list.", 0.0, False
             output = f"{matched}: {imaging[matched]}"
-            reward = graders.diagnosis_step_reward(cmd, [matched.lower()], self._accessed_sections, self._relevant_sections)
-            return output, reward, False
+            reward = graders.diagnosis_step_reward(cmd, [matched.lower()], self._accessed_sections, self._relevant_sections) + penalty
+            return (output + warning), reward, False
 
         if cmd == "chart.exam":
             exam = extracted.get("physical_exam", {})
@@ -292,7 +296,8 @@ class ClaudeCodeForHealthEnvironment(Environment):
                 ddx_list=self._ddx_list,
                 steps_taken=self._state.step_count,
             )
-            return f"Diagnosis submitted: '{self._confirmed_diagnosis}'. Score: {terminal:.2f}", terminal, True
+            terminal += penalty
+            return f"Diagnosis submitted: '{self._confirmed_diagnosis}'. Score: {terminal:.2f}" + warning, terminal, True
 
         return f"Unknown diagnosis command: {cmd}", 0.0, False
 
@@ -536,6 +541,25 @@ class ClaudeCodeForHealthEnvironment(Environment):
             return f"[STATUS] Note read: {read} | Corrections: {corr} | {step_info}"
 
         return f"[STATUS] {step_info}"
+
+    def _check_prerequisites(self, cmd: str, args: list[str]) -> tuple[float, str]:
+        """Returns (penalty, warning_text). Both empty if no violation."""
+        if cmd == "chart.imaging" and args:
+            if "vitals" not in self._accessed_sections:
+                return PROTOCOL_PENALTY, f"\n[WARNING] Ordering imaging without baseline vitals: {PROTOCOL_PENALTY} protocol penalty"
+
+        if cmd == "chart.labs" and args:
+            panel = args[0].lower()
+            if panel in SPECIALIZED_LAB_PANELS:
+                has_basic = any(s.startswith("labs.") and s.split(".")[-1] in ("cbc", "bmp") for s in self._accessed_sections)
+                if not has_basic:
+                    return PROTOCOL_PENALTY, f"\n[WARNING] Ordering specialized labs without basic panels (CBC/BMP): {PROTOCOL_PENALTY} protocol penalty"
+
+        if cmd == "ddx.confirm":
+            if len(self._ddx_list) < 2:
+                return PROTOCOL_PENALTY, f"\n[WARNING] Confirming diagnosis with <2 differentials: {PROTOCOL_PENALTY} protocol penalty"
+
+        return 0.0, ""
 
     # ------------------------------------------------------------------
     # Formatting helpers
