@@ -8,7 +8,7 @@ except Exception as e:
 try:
     from ..models import MedAction, MedObservation
     from .claude_code_for_health_environment import ClaudeCodeForHealthEnvironment
-except ModuleNotFoundError:
+except (ImportError, ModuleNotFoundError):
     from models import MedAction, MedObservation
     from server.claude_code_for_health_environment import ClaudeCodeForHealthEnvironment
 
