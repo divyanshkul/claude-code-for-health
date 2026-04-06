@@ -5,3 +5,23 @@ runtime: fastapi
 app: server.app:app
 port: 8000
 
+description: >
+  Clinical terminal environment where an AI agent works through medical tasks
+  by typing CLI commands. Three task types: diagnostic workup, medical
+  calculations, and clinical note review. All programmatically graded.
+
+tasks:
+  - name: easy
+    description: "Note review — identify if a clinical note is error-free or fix obvious errors"
+    difficulty: easy
+    default_task_type: note_review
+
+  - name: medium
+    description: "Medical calculation — read a clinical scenario, identify the formula, compute the answer"
+    difficulty: medium
+    default_task_type: calculation
+
+  - name: hard
+    description: "Diagnostic workup — explore patient chart via CLI, build differential, confirm diagnosis"
+    difficulty: hard
+    default_task_type: diagnosis
