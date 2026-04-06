@@ -1,27 +1,38 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-#
-# This source code is licensed under the BSD-style license found in the
-# LICENSE file in the root directory of this source tree.
-
 """
-Data models for the Claude Code For Health Environment.
+Data models for the Claude Code for Health Environment.
 
-The claude_code_for_health environment is a simple test environment that echoes back messages.
+Three Pydantic models defining the action/observation/state contract:
+- MedAction: single CLI command string (terminal metaphor)
+- MedObservation: command output + episode metadata
+- MedState: episode tracking for state() endpoint
 """
 
-from openenv.core.env_server.types import Action, Observation
+from openenv.core.env_server.types import Action, Observation, State
 from pydantic import Field
 
 
-class ClaudeCodeForHealthAction(Action):
-    """Action for the Claude Code For Health environment - just a message to echo."""
+class MedAction(Action):
+    """Agent sends a single CLI command string per step."""
 
-    message: str = Field(..., description="Message to echo back")
+    command: str = Field(..., description="CLI command string, e.g. 'chart.labs CBC'")
 
 
-class ClaudeCodeForHealthObservation(Observation):
-    """Observation from the Claude Code For Health environment - the echoed message."""
+class MedObservation(Observation):
+    """Environment returns command output and episode context."""
 
-    echoed_message: str = Field(default="", description="The echoed message")
-    message_length: int = Field(default=0, description="Length of the echoed message")
+    output: str = Field(default="", description="Command output text")
+    error: str = Field(default="", description="Error message if command invalid")
+    available_commands: list[str] = Field(default_factory=list)
+    task_type: str = Field(default="", description="diagnosis | calculation | note_review")
+    step_number: int = Field(default=0)
+    max_steps: int = Field(default=50)
+
+
+class MedState(State):
+    """Episode state exposed via the state() endpoint."""
+
+    task_type: str = Field(default="")
+    difficulty: str = Field(default="easy")
+    total_score: float = Field(default=0.0)
+    commands_issued: int = Field(default=0)
+    is_submitted: bool = Field(default=False)

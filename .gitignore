@@ -52,3 +52,9 @@ outputs/
 
 # Docker
 *.tar
+
+
+data/*
+*agent-docs/*
+implementation-plan.md
+uv.lock
