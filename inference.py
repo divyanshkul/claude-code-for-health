@@ -20,7 +20,7 @@ from openai import OpenAI
 
 from claude_code_for_health import ClaudeCodeForHealthEnv, MedAction
 
-IMAGE_NAME = os.getenv("IMAGE_NAME")
+IMAGE_NAME = os.getenv("IMAGE_NAME") or os.getenv("LOCAL_IMAGE_NAME")
 API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
 API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
 MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
@@ -62,8 +62,15 @@ SYSTEM_PROMPT = textwrap.dedent("""\
       note.approve                           Approve note / submit corrections (ends episode)
       help                                   List commands
 
+    REFERENCE TOOLS (available in all tasks):
+      reference.ranges <test>          Look up normal range for a lab test
+      reference.criteria <condition>   Look up diagnostic criteria for a condition
+      reference.drug_info <drug>       Look up drug mechanism, indications, contraindications
+      interpret <test> <value>         Interpret a lab value (e.g. interpret sodium 128)
+
     Strategy:
     - Always read available data before making decisions
+    - Use reference tools when unsure about normal ranges or diagnostic criteria
     - For diagnosis: review history, vitals, labs, then form differential before confirming
     - For calculations: read the case, identify the calculator, compute, submit
     - For note review: read the note carefully, correct errors if any, then approve

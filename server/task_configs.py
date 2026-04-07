@@ -70,19 +70,23 @@ def _filter_diagnosis(difficulty: str, cases: list[dict]) -> list[dict]:
     return cases
 
 
+def _matches_set(name: str, keyword_set: set[str]) -> bool:
+    return any(kw in name for kw in keyword_set)
+
+
 def _filter_calculation(difficulty: str, cases: list[dict]) -> list[dict]:
     def calc_name(c: dict) -> str:
         return (c.get("Calculator Name") or "").lower()
 
     if difficulty == "easy":
-        return [c for c in cases if calc_name(c) in SIMPLE_CALCULATORS]
+        return [c for c in cases if _matches_set(calc_name(c), SIMPLE_CALCULATORS)]
     elif difficulty == "hard":
-        return [c for c in cases if calc_name(c) in COMPLEX_CALCULATORS]
+        return [c for c in cases if _matches_set(calc_name(c), COMPLEX_CALCULATORS)]
     elif difficulty == "medium":
         return [
             c for c in cases
-            if calc_name(c) not in SIMPLE_CALCULATORS
-            and calc_name(c) not in COMPLEX_CALCULATORS
+            if not _matches_set(calc_name(c), SIMPLE_CALCULATORS)
+            and not _matches_set(calc_name(c), COMPLEX_CALCULATORS)
         ]
     return cases
 

@@ -10,8 +10,14 @@ try:
 except ImportError:
     from models import MedAction, MedObservation, MedState
 
-from . import command_parser, graders, task_configs
+from . import command_parser, constants, graders, task_configs
 from .data_loader import DataLoader
+
+REFERENCE_COMMANDS = [
+    "reference.ranges <test>", "reference.criteria <condition>",
+    "reference.drug_info <drug>", "interpret <test> <value>",
+]
+REFERENCE_CMDS_VALID = {"reference.ranges", "reference.criteria", "reference.drug_info", "interpret"}
 
 DIAGNOSIS_COMMANDS = [
     "chart.history", "chart.vitals", "chart.labs [panel]",
@@ -19,22 +25,22 @@ DIAGNOSIS_COMMANDS = [
     "chart.medications", "chart.allergies",
     "ddx.list", "ddx.add <diagnosis>", "ddx.remove <diagnosis>",
     "ddx.confirm <diagnosis>", "help",
-]
+] + REFERENCE_COMMANDS
 CALCULATION_COMMANDS = [
     "case.read", "calculate <calculator_name>",
     "submit <numeric_value>", "help",
-]
+] + REFERENCE_COMMANDS
 NOTE_COMMANDS = [
     "note.read", "note.correct <sentence_id> <corrected_text>",
     "note.approve", "help",
-]
+] + REFERENCE_COMMANDS
 VALID_DIAGNOSIS_CMDS = {
     "chart.history", "chart.vitals", "chart.labs", "chart.imaging",
     "chart.exam", "chart.medications", "chart.allergies",
     "ddx.list", "ddx.add", "ddx.remove", "ddx.confirm", "help",
-}
-VALID_CALCULATION_CMDS = {"case.read", "calculate", "submit", "help"}
-VALID_NOTE_CMDS = {"note.read", "note.correct", "note.approve", "help"}
+} | REFERENCE_CMDS_VALID
+VALID_CALCULATION_CMDS = {"case.read", "calculate", "submit", "help"} | REFERENCE_CMDS_VALID
+VALID_NOTE_CMDS = {"note.read", "note.correct", "note.approve", "help"} | REFERENCE_CMDS_VALID
 
 PROTOCOL_PENALTY = -0.05
 SPECIALIZED_LAB_PANELS = {"abg", "coags", "coagulation", "cultures", "cytology"}
@@ -185,6 +191,10 @@ class ClaudeCodeForHealthEnvironment(Environment):
         if cmd == "help":
             return self._handle_help(), 0.0, False
 
+        ref_result = self._dispatch_reference(cmd, args)
+        if ref_result is not None:
+            return ref_result
+
         if self._task_type == "diagnosis":
             return self._dispatch_diagnosis(cmd, args)
         elif self._task_type == "calculation":
@@ -193,6 +203,46 @@ class ClaudeCodeForHealthEnvironment(Environment):
             return self._dispatch_note(cmd, args)
 
         return "Internal error: unknown task type.", 0.0, False
+
+    def _dispatch_reference(self, cmd: str, args: list[str]) -> tuple[str, float, bool] | None:
+        if cmd == "reference.ranges":
+            if not args:
+                return "Usage: reference.ranges <test_name>", 0.0, False
+            result = constants.lookup_range(args[0])
+            if result is None:
+                return f"No reference range found for '{args[0]}'.", 0.0, False
+            return result, 0.0, False
+
+        if cmd == "reference.criteria":
+            if not args:
+                return "Usage: reference.criteria <condition>", 0.0, False
+            result = constants.lookup_criteria(args[0])
+            if result is None:
+                return f"No diagnostic criteria found for '{args[0]}'.", 0.0, False
+            return result, 0.0, False
+
+        if cmd == "reference.drug_info":
+            if not args:
+                return "Usage: reference.drug_info <drug_name>", 0.0, False
+            result = constants.lookup_drug(args[0])
+            if result is None:
+                return f"No drug info found for '{args[0]}'.", 0.0, False
+            return result, 0.0, False
+
+        if cmd == "interpret":
+            if not args:
+                return "Usage: interpret <test_name> <value>", 0.0, False
+            parts = args[0].rsplit(None, 1) if len(args) == 1 else args
+            if len(parts) < 2:
+                return "Usage: interpret <test_name> <value>", 0.0, False
+            test_name = parts[0]
+            value_str = parts[1] if len(parts) == 2 else parts[-1]
+            result = constants.interpret_value(test_name, value_str)
+            if result is None:
+                return f"Unknown test '{test_name}'. Try: sodium, potassium, troponin, wbc, etc.", 0.0, False
+            return result, 0.0, False
+
+        return None
 
     # ------------------------------------------------------------------
     # Diagnosis handlers
