@@ -68,6 +68,7 @@ class ClaudeCodeForHealthEnvironment(Environment):
         self._calculator_declared = False
         self._is_done = False
         self._cumulative_reward = 0.0
+        self._seen_commands: set[str] = set()
 
     # ------------------------------------------------------------------
     # reset
@@ -140,7 +141,15 @@ class ClaudeCodeForHealthEnvironment(Environment):
                 reward=0.0,
             )
 
+        full_cmd = raw.strip().lower()
+        is_duplicate = full_cmd in self._seen_commands and cmd not in ("help", "ddx.list")
+        self._seen_commands.add(full_cmd)
+
         output, reward, done = self._dispatch(cmd, args)
+
+        if is_duplicate and not done:
+            output += f"\n[NOTE] Duplicate command — already executed. Efficiency penalty: {PROTOCOL_PENALTY}"
+            reward += PROTOCOL_PENALTY
 
         self._cumulative_reward += reward
         self._state.total_score = round(self._cumulative_reward, 4)
