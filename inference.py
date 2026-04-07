@@ -13,6 +13,7 @@ Required env vars:
 import asyncio
 import os
 import re
+import sys
 import textwrap
 from typing import Optional
 
@@ -20,10 +21,11 @@ from openai import OpenAI
 
 from claude_code_for_health import ClaudeCodeForHealthEnv, MedAction
 
+
 IMAGE_NAME = os.getenv("IMAGE_NAME") or os.getenv("LOCAL_IMAGE_NAME")
 API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
 API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
-MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
+MODEL_NAME = os.getenv("MODEL_NAME") or "meta-llama/Llama-3.1-8B-Instruct"
 BENCHMARK = "claude_code_for_health"
 MAX_STEPS = 30
 TEMPERATURE = 0.3
@@ -122,7 +124,7 @@ def get_agent_command(client: OpenAI, messages: list[dict]) -> str:
         raw = (completion.choices[0].message.content or "").strip()
         return clean_llm_output(raw) if raw else "help"
     except Exception as exc:
-        print(f"[DEBUG] LLM request failed: {exc}", flush=True)
+        print(f"[DEBUG] LLM request failed: {exc}", file=sys.stderr, flush=True)
         return "help"
 
 
@@ -170,14 +172,14 @@ async def run_task(client: OpenAI, env, difficulty: str) -> float:
                 break
 
         score = sum(rewards)
-        score = min(max(score, 0.0), 1.0)
+        score = min(max(score, 0.01), 0.99)
         success = score >= 0.1
 
     finally:
         try:
             await env.close()
         except Exception as e:
-            print(f"[DEBUG] env.close() error: {e}", flush=True)
+            print(f"[DEBUG] env.close() error: {e}", file=sys.stderr, flush=True)
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
     return score

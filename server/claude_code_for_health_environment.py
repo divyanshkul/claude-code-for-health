@@ -13,37 +13,42 @@ except ImportError:
 from . import command_parser, constants, graders, task_configs
 from .data_loader import DataLoader
 
-REFERENCE_COMMANDS = [
+PROTOCOL_PENALTY = -0.05
+SPECIALIZED_LAB_PANELS = {"abg", "coags", "coagulation", "cultures", "cytology"}
+
+REFERENCE_TOOLS = [
     "reference.ranges <test>", "reference.criteria <condition>",
     "reference.drug_info <drug>", "interpret <test> <value>",
 ]
-REFERENCE_CMDS_VALID = {"reference.ranges", "reference.criteria", "reference.drug_info", "interpret"}
+REFERENCE_TOOL_NAMES = {"reference.ranges", "reference.criteria", "reference.drug_info", "interpret"}
 
-DIAGNOSIS_COMMANDS = [
-    "chart.history", "chart.vitals", "chart.labs [panel]",
-    "chart.imaging [type]", "chart.exam [system]",
-    "chart.medications", "chart.allergies",
-    "ddx.list", "ddx.add <diagnosis>", "ddx.remove <diagnosis>",
-    "ddx.confirm <diagnosis>", "help",
-] + REFERENCE_COMMANDS
-CALCULATION_COMMANDS = [
-    "case.read", "calculate <calculator_name>",
-    "submit <numeric_value>", "help",
-] + REFERENCE_COMMANDS
-NOTE_COMMANDS = [
-    "note.read", "note.correct <sentence_id> <corrected_text>",
-    "note.approve", "help",
-] + REFERENCE_COMMANDS
-VALID_DIAGNOSIS_CMDS = {
-    "chart.history", "chart.vitals", "chart.labs", "chart.imaging",
-    "chart.exam", "chart.medications", "chart.allergies",
-    "ddx.list", "ddx.add", "ddx.remove", "ddx.confirm", "help",
-} | REFERENCE_CMDS_VALID
-VALID_CALCULATION_CMDS = {"case.read", "calculate", "submit", "help"} | REFERENCE_CMDS_VALID
-VALID_NOTE_CMDS = {"note.read", "note.correct", "note.approve", "help"} | REFERENCE_CMDS_VALID
+TASK_TOOLS = {
+    "diagnosis": [
+        "chart.history", "chart.vitals", "chart.labs [panel]",
+        "chart.imaging [type]", "chart.exam [system]",
+        "chart.medications", "chart.allergies",
+        "ddx.list", "ddx.add <diagnosis>", "ddx.remove <diagnosis>",
+        "ddx.confirm <diagnosis>", "help",
+    ] + REFERENCE_TOOLS,
+    "calculation": [
+        "case.read", "calculate <calculator_name>",
+        "submit <numeric_value>", "help",
+    ] + REFERENCE_TOOLS,
+    "note_review": [
+        "note.read", "note.correct <sentence_id> <corrected_text>",
+        "note.approve", "help",
+    ] + REFERENCE_TOOLS,
+}
 
-PROTOCOL_PENALTY = -0.05
-SPECIALIZED_LAB_PANELS = {"abg", "coags", "coagulation", "cultures", "cytology"}
+VALID_TOOL_NAMES = {
+    "diagnosis": {
+        "chart.history", "chart.vitals", "chart.labs", "chart.imaging",
+        "chart.exam", "chart.medications", "chart.allergies",
+        "ddx.list", "ddx.add", "ddx.remove", "ddx.confirm", "help",
+    } | REFERENCE_TOOL_NAMES,
+    "calculation": {"case.read", "calculate", "submit", "help"} | REFERENCE_TOOL_NAMES,
+    "note_review": {"note.read", "note.correct", "note.approve", "help"} | REFERENCE_TOOL_NAMES,
+}
 
 
 class ClaudeCodeForHealthEnvironment(Environment):
@@ -77,7 +82,7 @@ class ClaudeCodeForHealthEnvironment(Environment):
         self._seen_commands: set[str] = set()
 
     # ------------------------------------------------------------------
-    # reset
+    # reset / step / state
     # ------------------------------------------------------------------
 
     def reset(self, *, seed=None, options=None) -> MedObservation:
@@ -87,9 +92,14 @@ class ClaudeCodeForHealthEnvironment(Environment):
 
         opts = options or {}
         self._difficulty = opts.get("task", "easy")
-        self._task_type = opts.get("task_type") or task_configs.get_default_task_type(self._difficulty)
+        self._task_type = opts.get("task_type") or task_configs.get_default_task_type(self._difficulty, self._rng)
 
-        cases = self._get_cases_for_type()
+        cases_map = {
+            "diagnosis": self._data_loader.get_diagnosis_cases,
+            "calculation": self._data_loader.get_calculation_cases,
+            "note_review": self._data_loader.get_note_cases,
+        }
+        cases = cases_map.get(self._task_type, self._data_loader.get_diagnosis_cases)()
         case = task_configs.select_case(self._task_type, self._difficulty, cases, self._rng)
 
         self._state = MedState(
@@ -105,25 +115,17 @@ class ClaudeCodeForHealthEnvironment(Environment):
         self._setup_ground_truth(case)
 
         if self._task_type == "diagnosis":
-            extracted = case.get("extracted", {})
-            self._relevant_sections = graders.compute_relevant_sections(extracted)
-
-        initial_output = self._build_initial_observation(case)
-        cmds = self._available_commands()
+            self._relevant_sections = graders.compute_relevant_sections(case.get("extracted", {}))
 
         return MedObservation(
-            output=initial_output,
-            available_commands=cmds,
+            output=self._build_initial_observation(case),
+            available_commands=TASK_TOOLS.get(self._task_type, ["help"]),
             task_type=self._task_type,
             step_number=0,
             max_steps=self._max_steps,
             done=False,
             reward=0.0,
         )
-
-    # ------------------------------------------------------------------
-    # step
-    # ------------------------------------------------------------------
 
     def step(self, action: MedAction) -> MedObservation:
         if self._is_done:
@@ -137,12 +139,12 @@ class ClaudeCodeForHealthEnvironment(Environment):
         cmd, args = command_parser.parse(raw)
 
         if not cmd:
-            return self._obs("Empty command. Type 'help' for available commands.", reward=0.0)
+            return self._obs("Empty command. Type 'help' for available tools.", reward=0.0)
 
-        valid_cmds = self._valid_commands_set()
-        if cmd not in valid_cmds:
+        valid = VALID_TOOL_NAMES.get(self._task_type, {"help"})
+        if cmd not in valid:
             return self._obs(
-                f"Unknown command: '{cmd}'. Type 'help' for available commands.",
+                f"Unknown tool: '{cmd}'. Type 'help' for available tools.",
                 error=f"Unknown command: {cmd}",
                 reward=0.0,
             )
@@ -154,7 +156,7 @@ class ClaudeCodeForHealthEnvironment(Environment):
         output, reward, done = self._dispatch(cmd, args)
 
         if is_duplicate and not done:
-            output += f"\n[NOTE] Duplicate command — already executed. Efficiency penalty: {PROTOCOL_PENALTY}"
+            output += f"\n[NOTE] Duplicate tool call. Efficiency penalty: {PROTOCOL_PENALTY}"
             reward += PROTOCOL_PENALTY
 
         self._cumulative_reward += reward
@@ -175,10 +177,6 @@ class ClaudeCodeForHealthEnvironment(Environment):
 
         return self._obs(output, reward=round(reward, 4), done=done)
 
-    # ------------------------------------------------------------------
-    # state
-    # ------------------------------------------------------------------
-
     @property
     def state(self) -> MedState:
         return self._state
@@ -195,38 +193,29 @@ class ClaudeCodeForHealthEnvironment(Environment):
         if ref_result is not None:
             return ref_result
 
-        if self._task_type == "diagnosis":
-            return self._dispatch_diagnosis(cmd, args)
-        elif self._task_type == "calculation":
-            return self._dispatch_calculation(cmd, args)
-        elif self._task_type == "note_review":
-            return self._dispatch_note(cmd, args)
-
+        dispatch_map = {
+            "diagnosis": self._dispatch_diagnosis,
+            "calculation": self._dispatch_calculation,
+            "note_review": self._dispatch_note,
+        }
+        handler = dispatch_map.get(self._task_type)
+        if handler:
+            return handler(cmd, args)
         return "Internal error: unknown task type.", 0.0, False
 
     def _dispatch_reference(self, cmd: str, args: list[str]) -> tuple[str, float, bool] | None:
-        if cmd == "reference.ranges":
+        lookup_map = {
+            "reference.ranges": ("test_name", constants.lookup_range),
+            "reference.criteria": ("condition", constants.lookup_criteria),
+            "reference.drug_info": ("drug_name", constants.lookup_drug),
+        }
+        if cmd in lookup_map:
+            param_name, lookup_fn = lookup_map[cmd]
             if not args:
-                return "Usage: reference.ranges <test_name>", 0.0, False
-            result = constants.lookup_range(args[0])
+                return f"Usage: {cmd} <{param_name}>", 0.0, False
+            result = lookup_fn(args[0])
             if result is None:
-                return f"No reference range found for '{args[0]}'.", 0.0, False
-            return result, 0.0, False
-
-        if cmd == "reference.criteria":
-            if not args:
-                return "Usage: reference.criteria <condition>", 0.0, False
-            result = constants.lookup_criteria(args[0])
-            if result is None:
-                return f"No diagnostic criteria found for '{args[0]}'.", 0.0, False
-            return result, 0.0, False
-
-        if cmd == "reference.drug_info":
-            if not args:
-                return "Usage: reference.drug_info <drug_name>", 0.0, False
-            result = constants.lookup_drug(args[0])
-            if result is None:
-                return f"No drug info found for '{args[0]}'.", 0.0, False
+                return f"No results found for '{args[0]}'.", 0.0, False
             return result, 0.0, False
 
         if cmd == "interpret":
@@ -235,18 +224,36 @@ class ClaudeCodeForHealthEnvironment(Environment):
             parts = args[0].rsplit(None, 1) if len(args) == 1 else args
             if len(parts) < 2:
                 return "Usage: interpret <test_name> <value>", 0.0, False
-            test_name = parts[0]
-            value_str = parts[1] if len(parts) == 2 else parts[-1]
-            result = constants.interpret_value(test_name, value_str)
+            result = constants.interpret_value(parts[0], parts[-1])
             if result is None:
-                return f"Unknown test '{test_name}'. Try: sodium, potassium, troponin, wbc, etc.", 0.0, False
+                return f"Unknown test '{parts[0]}'. Try: sodium, potassium, troponin, wbc, etc.", 0.0, False
             return result, 0.0, False
 
         return None
 
     # ------------------------------------------------------------------
-    # Diagnosis handlers
+    # Diagnosis tools
     # ------------------------------------------------------------------
+
+    def _diag_step_reward(self, cmd: str, args: list[str]) -> float:
+        return graders.diagnosis_step_reward(cmd, args, self._accessed_sections, self._relevant_sections)
+
+    def _handle_chart_keyed(self, data: dict, key_arg: str | None, cmd: str,
+                            label: str, list_label: str) -> tuple[str, float, bool]:
+        if not key_arg:
+            keys = list(data.keys()) if data else []
+            if keys:
+                return f"Available {list_label}: {', '.join(keys)}", 0.0, False
+            return f"No {list_label} available.", 0.0, False
+
+        matched = self._fuzzy_key_match(key_arg, data)
+        if matched is None:
+            return f"{label} '{key_arg}' not available. Use '{cmd}' to list.", 0.0, False
+
+        value = data[matched]
+        output = self._format_dict(value, title=matched) if isinstance(value, dict) else f"{matched}: {value}"
+        reward = self._diag_step_reward(cmd, [matched.lower()])
+        return output, reward, False
 
     def _dispatch_diagnosis(self, cmd: str, args: list[str]) -> tuple[str, float, bool]:
         extracted = self._task_data.get("extracted", {})
@@ -254,70 +261,37 @@ class ClaudeCodeForHealthEnvironment(Environment):
 
         if cmd == "chart.history":
             output = self._format_history(extracted.get("history", {}))
-            reward = graders.diagnosis_step_reward(cmd, args, self._accessed_sections, self._relevant_sections) + penalty
-            return (output + warning), reward, False
+            return (output + warning), self._diag_step_reward(cmd, args) + penalty, False
 
         if cmd == "chart.vitals":
             output = self._format_vitals(extracted.get("vitals", {}))
-            reward = graders.diagnosis_step_reward(cmd, args, self._accessed_sections, self._relevant_sections) + penalty
-            return (output + warning), reward, False
+            return (output + warning), self._diag_step_reward(cmd, args) + penalty, False
 
         if cmd == "chart.labs":
-            labs = extracted.get("labs", {})
-            if not args:
-                panels = list(labs.keys()) if labs else []
-                if panels:
-                    return f"Available lab panels: {', '.join(panels)}", 0.0, False
-                return "No lab results available.", 0.0, False
-            panel_name = args[0]
-            matched_panel = self._fuzzy_key_match(panel_name, labs)
-            if matched_panel is None:
-                return f"Lab panel '{panel_name}' not available. Use 'chart.labs' to list panels.", 0.0, False
-            output = self._format_dict(labs[matched_panel], title=matched_panel)
-            reward = graders.diagnosis_step_reward(cmd, [matched_panel.lower()], self._accessed_sections, self._relevant_sections) + penalty
-            return (output + warning), reward, False
+            output, reward, done = self._handle_chart_keyed(
+                extracted.get("labs", {}), args[0] if args else None,
+                "chart.labs", "Lab panel", "lab panels")
+            return (output + warning), reward + penalty, done
 
         if cmd == "chart.imaging":
-            imaging = extracted.get("imaging", {})
-            if not args:
-                modalities = list(imaging.keys()) if imaging else []
-                if modalities:
-                    return f"Available imaging: {', '.join(modalities)}", 0.0, False
-                return "No imaging results available.", 0.0, False
-            modality = args[0]
-            matched = self._fuzzy_key_match(modality, imaging)
-            if matched is None:
-                return f"Imaging '{modality}' not available. Use 'chart.imaging' to list.", 0.0, False
-            output = f"{matched}: {imaging[matched]}"
-            reward = graders.diagnosis_step_reward(cmd, [matched.lower()], self._accessed_sections, self._relevant_sections) + penalty
-            return (output + warning), reward, False
+            output, reward, done = self._handle_chart_keyed(
+                extracted.get("imaging", {}), args[0] if args else None,
+                "chart.imaging", "Imaging", "imaging")
+            return (output + warning), reward + penalty, done
 
         if cmd == "chart.exam":
-            exam = extracted.get("physical_exam", {})
-            if not args:
-                systems = list(exam.keys()) if exam else []
-                if systems:
-                    return f"Available exam systems: {', '.join(systems)}", 0.0, False
-                return "No physical exam data available.", 0.0, False
-            system = args[0]
-            matched = self._fuzzy_key_match(system, exam)
-            if matched is None:
-                return f"Exam '{system}' not available. Use 'chart.exam' to list.", 0.0, False
-            output = f"{matched}: {exam[matched]}"
-            reward = graders.diagnosis_step_reward(cmd, [matched.lower()], self._accessed_sections, self._relevant_sections)
-            return output, reward, False
+            output, reward, done = self._handle_chart_keyed(
+                extracted.get("physical_exam", {}), args[0] if args else None,
+                "chart.exam", "Exam", "exam systems")
+            return output, reward, done
 
         if cmd == "chart.medications":
             meds = extracted.get("history", {}).get("medications", [])
-            if meds:
-                return "Medications: " + ", ".join(meds), 0.0, False
-            return "No medications listed.", 0.0, False
+            return ("Medications: " + ", ".join(meds)) if meds else "No medications listed.", 0.0, False
 
         if cmd == "chart.allergies":
             allergies = extracted.get("history", {}).get("allergies", [])
-            if allergies:
-                return "Allergies: " + ", ".join(allergies), 0.0, False
-            return "No known allergies.", 0.0, False
+            return ("Allergies: " + ", ".join(allergies)) if allergies else "No known allergies.", 0.0, False
 
         if cmd == "ddx.list":
             if self._ddx_list:
@@ -346,31 +320,27 @@ class ClaudeCodeForHealthEnvironment(Environment):
             if not args:
                 return "Usage: ddx.confirm <diagnosis>", 0.0, False
             self._confirmed_diagnosis = args[0].strip()
-            gt_diagnosis = self._ground_truth.get("diagnosis", "")
             terminal = graders.diagnosis_terminal_reward(
                 confirmed=self._confirmed_diagnosis,
-                ground_truth_diagnosis=gt_diagnosis,
+                ground_truth_diagnosis=self._ground_truth.get("diagnosis", ""),
                 accessed_sections=self._accessed_sections,
                 relevant_sections=self._relevant_sections,
                 ddx_list=self._ddx_list,
                 steps_taken=self._state.step_count,
-            )
-            terminal += penalty
+            ) + penalty
             return f"Diagnosis submitted: '{self._confirmed_diagnosis}'. Score: {terminal:.2f}" + warning, terminal, True
 
-        return f"Unknown diagnosis command: {cmd}", 0.0, False
+        return f"Unknown diagnosis tool: {cmd}", 0.0, False
 
     # ------------------------------------------------------------------
-    # Calculation handlers
+    # Calculation tools
     # ------------------------------------------------------------------
 
     def _dispatch_calculation(self, cmd: str, args: list[str]) -> tuple[str, float, bool]:
         if cmd == "case.read":
             note = self._task_data.get("Patient Note", "No patient note available.")
             question = self._task_data.get("Question", "")
-            output = note
-            if question:
-                output += f"\n\nQuestion: {question}"
+            output = note + (f"\n\nQuestion: {question}" if question else "")
             reward = graders.calculation_step_reward(cmd, self._case_read, self._calculator_declared)
             self._case_read = True
             return output, reward, False
@@ -391,35 +361,28 @@ class ClaudeCodeForHealthEnvironment(Environment):
             except ValueError:
                 return f"Cannot parse '{args[0]}' as a number.", 0.0, False
 
-            gt_answer = float(self._ground_truth.get("answer", 0))
-            lower = float(self._ground_truth.get("lower_limit", gt_answer))
-            upper = float(self._ground_truth.get("upper_limit", gt_answer))
-            expected_calc = self._ground_truth.get("calculator_name", "")
-
+            gt = self._ground_truth
             terminal = graders.calculation_terminal_reward(
                 submitted_value=self._submitted_value,
-                ground_truth=gt_answer,
-                lower_limit=lower,
-                upper_limit=upper,
+                ground_truth=float(gt.get("answer", 0)),
+                lower_limit=float(gt.get("lower_limit", gt.get("answer", 0))),
+                upper_limit=float(gt.get("upper_limit", gt.get("answer", 0))),
                 calculator_used=self._calculator_used,
-                expected_calculator=expected_calc,
+                expected_calculator=gt.get("calculator_name", ""),
                 steps_taken=self._state.step_count,
             )
             return f"Submitted: {self._submitted_value}. Score: {terminal:.2f}", terminal, True
 
-        return f"Unknown calculation command: {cmd}", 0.0, False
+        return f"Unknown calculation tool: {cmd}", 0.0, False
 
     # ------------------------------------------------------------------
-    # Note review handlers
+    # Note review tools
     # ------------------------------------------------------------------
 
     def _dispatch_note(self, cmd: str, args: list[str]) -> tuple[str, float, bool]:
         if cmd == "note.read":
             sentences_raw = self._task_data.get("Sentences", "")
-            if sentences_raw:
-                output = self._format_note_sentences(sentences_raw)
-            else:
-                output = self._task_data.get("Text", "No note available.")
+            output = self._format_note_sentences(sentences_raw) if sentences_raw else self._task_data.get("Text", "No note available.")
             reward = graders.note_step_reward(cmd, self._note_read)
             self._note_read = True
             return output, reward, False
@@ -427,39 +390,25 @@ class ClaudeCodeForHealthEnvironment(Environment):
         if cmd == "note.correct":
             if len(args) < 2:
                 return "Usage: note.correct <sentence_id> <corrected_text>", 0.0, False
-            sentence_id = args[0].strip()
-            corrected_text = args[1].strip()
-            self._corrections[sentence_id] = corrected_text
-            return f"Correction recorded for sentence {sentence_id}.", 0.0, False
+            self._corrections[args[0].strip()] = args[1].strip()
+            return f"Correction recorded for sentence {args[0].strip()}.", 0.0, False
 
         if cmd == "note.approve":
-            has_error = bool(self._ground_truth.get("has_error", False))
-            error_sid = self._ground_truth.get("error_sentence_id")
-            corrected_sentence = self._ground_truth.get("corrected_sentence")
-
+            gt = self._ground_truth
             terminal = graders.note_terminal_reward(
                 corrections=self._corrections,
-                has_error=has_error,
-                error_sentence_id=error_sid,
-                corrected_sentence=corrected_sentence,
+                has_error=bool(gt.get("has_error", False)),
+                error_sentence_id=gt.get("error_sentence_id"),
+                corrected_sentence=gt.get("corrected_sentence"),
             )
             status = "Corrections submitted." if self._corrections else "Note approved as correct."
             return f"{status} Score: {terminal:.2f}", terminal, True
 
-        return f"Unknown note review command: {cmd}", 0.0, False
+        return f"Unknown note review tool: {cmd}", 0.0, False
 
     # ------------------------------------------------------------------
-    # Helpers
+    # Setup helpers
     # ------------------------------------------------------------------
-
-    def _get_cases_for_type(self) -> list[dict]:
-        if self._task_type == "diagnosis":
-            return self._data_loader.get_diagnosis_cases()
-        elif self._task_type == "calculation":
-            return self._data_loader.get_calculation_cases()
-        elif self._task_type == "note_review":
-            return self._data_loader.get_note_cases()
-        return self._data_loader.get_diagnosis_cases()
 
     def _setup_ground_truth(self, case: dict):
         if self._task_type == "diagnosis":
@@ -479,9 +428,8 @@ class ClaudeCodeForHealthEnvironment(Environment):
                 "explanation": case.get("Ground Truth Explanation", ""),
             }
         elif self._task_type == "note_review":
-            error_flag = case.get("Error Flag", 0)
             try:
-                has_error = int(float(error_flag)) == 1
+                has_error = int(float(case.get("Error Flag", 0))) == 1
             except (ValueError, TypeError):
                 has_error = False
             self._ground_truth = {
@@ -495,69 +443,35 @@ class ClaudeCodeForHealthEnvironment(Environment):
         if self._task_type == "diagnosis":
             extracted = case.get("extracted", {})
             demo = extracted.get("demographics", {})
-            age = demo.get("age", "?")
-            sex = demo.get("sex", "?")
             cc = extracted.get("chief_complaint", case.get("case_prompt", "")[:150])
-            return (
-                f"Patient: {age}{sex}, {cc}\n"
-                f"Type 'help' for available commands."
-            )
+            return f"Patient: {demo.get('age', '?')}{demo.get('sex', '?')}, {cc}\nType 'help' for available tools."
         elif self._task_type == "calculation":
-            question = case.get("Question", "")
-            calc_name = case.get("Calculator Name", "")
             return (
-                f"Medical Calculation Task — {calc_name}\n"
-                f"{question}\n"
+                f"Medical Calculation Task — {case.get('Calculator Name', '')}\n"
+                f"{case.get('Question', '')}\n"
                 f"Type 'case.read' to view the full patient note."
             )
         elif self._task_type == "note_review":
-            return (
-                "Clinical Note Review Task\n"
-                "Review the note for medical errors. Correct any you find, then approve.\n"
-                "Type 'note.read' to view the clinical note."
-            )
+            return "Clinical Note Review Task\nReview the note for medical errors. Correct any you find, then approve.\nType 'note.read' to view the clinical note."
         return "Unknown task type."
 
     def _handle_help(self) -> str:
-        cmds = self._available_commands()
-        lines = [f"Available commands ({self._task_type}):"]
-        for c in cmds:
-            lines.append(f"  {c}")
+        tools = TASK_TOOLS.get(self._task_type, ["help"])
+        lines = [f"Available tools ({self._task_type}):"]
+        for t in tools:
+            lines.append(f"  {t}")
         return "\n".join(lines)
-
-    def _available_commands(self) -> list[str]:
-        if self._task_type == "diagnosis":
-            return DIAGNOSIS_COMMANDS
-        elif self._task_type == "calculation":
-            return CALCULATION_COMMANDS
-        elif self._task_type == "note_review":
-            return NOTE_COMMANDS
-        return ["help"]
-
-    def _valid_commands_set(self) -> set[str]:
-        if self._task_type == "diagnosis":
-            return VALID_DIAGNOSIS_CMDS
-        elif self._task_type == "calculation":
-            return VALID_CALCULATION_CMDS
-        elif self._task_type == "note_review":
-            return VALID_NOTE_CMDS
-        return {"help"}
 
     def _force_terminal(self) -> float:
         if self._task_type == "diagnosis":
-            gt = self._ground_truth.get("diagnosis", "")
             return graders.diagnosis_terminal_reward(
                 confirmed=self._confirmed_diagnosis or "",
-                ground_truth_diagnosis=gt,
+                ground_truth_diagnosis=self._ground_truth.get("diagnosis", ""),
                 accessed_sections=self._accessed_sections,
                 relevant_sections=self._relevant_sections,
                 ddx_list=self._ddx_list,
                 steps_taken=self._state.step_count,
             )
-        elif self._task_type == "calculation":
-            if self._submitted_value is not None:
-                return 0.0
-            return 0.0
         elif self._task_type == "note_review":
             return graders.note_terminal_reward(
                 corrections=self._corrections,
@@ -567,13 +481,33 @@ class ClaudeCodeForHealthEnvironment(Environment):
             )
         return 0.0
 
+    def _check_prerequisites(self, cmd: str, args: list[str]) -> tuple[float, str]:
+        if cmd == "chart.imaging" and args:
+            if "vitals" not in self._accessed_sections:
+                return PROTOCOL_PENALTY, f"\n[WARNING] Ordering imaging without baseline vitals: {PROTOCOL_PENALTY} protocol penalty"
+
+        if cmd == "chart.labs" and args:
+            if args[0].lower() in SPECIALIZED_LAB_PANELS:
+                has_basic = any(s.startswith("labs.") and s.split(".")[-1] in ("cbc", "bmp") for s in self._accessed_sections)
+                if not has_basic:
+                    return PROTOCOL_PENALTY, f"\n[WARNING] Ordering specialized labs without basic panels (CBC/BMP): {PROTOCOL_PENALTY} protocol penalty"
+
+        if cmd == "ddx.confirm" and len(self._ddx_list) < 2:
+            return PROTOCOL_PENALTY, f"\n[WARNING] Confirming diagnosis with <2 differentials: {PROTOCOL_PENALTY} protocol penalty"
+
+        return 0.0, ""
+
+    # ------------------------------------------------------------------
+    # Observation + status
+    # ------------------------------------------------------------------
+
     def _obs(self, output: str, reward: float = 0.0, done: bool = False, error: str = "") -> MedObservation:
         if not done and self._task_type:
             output = output + "\n\n" + self._status_footer()
         return MedObservation(
             output=output,
             error=error,
-            available_commands=self._available_commands(),
+            available_commands=TASK_TOOLS.get(self._task_type, ["help"]),
             task_type=self._task_type,
             step_number=self._state.step_count,
             max_steps=self._max_steps,
@@ -583,107 +517,65 @@ class ClaudeCodeForHealthEnvironment(Environment):
 
     def _status_footer(self) -> str:
         step_info = f"Step: {self._state.step_count}/{self._max_steps}"
-
         if self._task_type == "diagnosis":
             ddx = ", ".join(self._ddx_list) if self._ddx_list else "empty"
             accessed = ", ".join(sorted(self._accessed_sections)) if self._accessed_sections else "none"
             return f"[STATUS] DDX: [{ddx}] | Accessed: {accessed} | {step_info}"
-
         if self._task_type == "calculation":
-            read = "yes" if self._case_read else "no"
-            calc = self._calculator_used or "none"
-            return f"[STATUS] Case read: {read} | Calculator: {calc} | {step_info}"
-
+            return f"[STATUS] Case read: {'yes' if self._case_read else 'no'} | Calculator: {self._calculator_used or 'none'} | {step_info}"
         if self._task_type == "note_review":
-            read = "yes" if self._note_read else "no"
             corr = str(dict(self._corrections)) if self._corrections else "none"
-            return f"[STATUS] Note read: {read} | Corrections: {corr} | {step_info}"
-
+            return f"[STATUS] Note read: {'yes' if self._note_read else 'no'} | Corrections: {corr} | {step_info}"
         return f"[STATUS] {step_info}"
 
-    def _check_prerequisites(self, cmd: str, args: list[str]) -> tuple[float, str]:
-        """Returns (penalty, warning_text). Both empty if no violation."""
-        if cmd == "chart.imaging" and args:
-            if "vitals" not in self._accessed_sections:
-                return PROTOCOL_PENALTY, f"\n[WARNING] Ordering imaging without baseline vitals: {PROTOCOL_PENALTY} protocol penalty"
-
-        if cmd == "chart.labs" and args:
-            panel = args[0].lower()
-            if panel in SPECIALIZED_LAB_PANELS:
-                has_basic = any(s.startswith("labs.") and s.split(".")[-1] in ("cbc", "bmp") for s in self._accessed_sections)
-                if not has_basic:
-                    return PROTOCOL_PENALTY, f"\n[WARNING] Ordering specialized labs without basic panels (CBC/BMP): {PROTOCOL_PENALTY} protocol penalty"
-
-        if cmd == "ddx.confirm":
-            if len(self._ddx_list) < 2:
-                return PROTOCOL_PENALTY, f"\n[WARNING] Confirming diagnosis with <2 differentials: {PROTOCOL_PENALTY} protocol penalty"
-
-        return 0.0, ""
-
     # ------------------------------------------------------------------
-    # Formatting helpers
+    # Formatting
     # ------------------------------------------------------------------
 
     def _format_history(self, history: dict) -> str:
         if not history or not any(history.values()):
             return "No history data available."
+        field_map = {"pmh": "PMH", "medications": "Medications", "allergies": "Allergies", "social": "Social", "family": "Family"}
         lines = []
-        if history.get("pmh"):
-            lines.append(f"PMH: {', '.join(history['pmh'])}")
-        if history.get("medications"):
-            lines.append(f"Medications: {', '.join(history['medications'])}")
-        if history.get("allergies"):
-            lines.append(f"Allergies: {', '.join(history['allergies'])}")
-        if history.get("social"):
-            lines.append(f"Social: {history['social']}")
-        if history.get("family"):
-            lines.append(f"Family: {history['family']}")
+        for key, label in field_map.items():
+            val = history.get(key)
+            if val:
+                lines.append(f"{label}: {', '.join(val) if isinstance(val, list) else val}")
         return "\n".join(lines) if lines else "No history data available."
 
     def _format_vitals(self, vitals: dict) -> str:
         if not vitals or not any(v for v in vitals.values() if v):
             return "No vital signs recorded."
-        parts = []
         label_map = {"bp": "BP", "hr": "HR", "temp": "Temp", "rr": "RR", "spo2": "SpO2"}
-        for key, label in label_map.items():
-            val = vitals.get(key)
-            if val:
-                parts.append(f"{label}: {val}")
+        parts = [f"{label}: {vitals[key]}" for key, label in label_map.items() if vitals.get(key)]
         return " | ".join(parts) if parts else "No vital signs recorded."
 
     def _format_dict(self, data, title: str = "") -> str:
         if isinstance(data, dict):
-            lines = [f"{title}:"] if title else []
-            for k, v in data.items():
-                lines.append(f"  {k}: {v}")
+            lines = ([f"{title}:"] if title else []) + [f"  {k}: {v}" for k, v in data.items()]
             return "\n".join(lines)
-        if isinstance(data, str):
-            return f"{title}: {data}" if title else data
-        return str(data)
+        return f"{title}: {data}" if title else str(data)
 
     def _format_note_sentences(self, sentences_raw: str) -> str:
-        lines = sentences_raw.strip().split("\n")
         formatted = []
-        for line in lines:
+        for line in sentences_raw.strip().split("\n"):
             line = line.strip()
             if not line:
                 continue
             parts = line.split(None, 1)
             if parts[0].isdigit():
-                sid = parts[0]
-                text = parts[1] if len(parts) > 1 else ""
-                formatted.append(f"[{sid}] {text}")
+                formatted.append(f"[{parts[0]}] {parts[1] if len(parts) > 1 else ''}")
             else:
                 formatted.append(line)
         return "\n".join(formatted)
 
     @staticmethod
     def _fuzzy_key_match(query: str, data: dict) -> str | None:
-        query_lower = query.lower().strip()
+        q = query.lower().strip()
         for key in data:
-            if key.lower() == query_lower:
+            if key.lower() == q:
                 return key
         for key in data:
-            if query_lower in key.lower() or key.lower() in query_lower:
+            if q in key.lower() or key.lower() in q:
                 return key
         return None

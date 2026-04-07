@@ -35,13 +35,13 @@ def select_case(task_type: str, difficulty: str, cases: list[dict], rng: Random)
     return rng.choice(filtered)
 
 
-def get_default_task_type(difficulty: str) -> str:
-    mapping = {
-        "easy": "note_review",
-        "medium": "calculation",
-        "hard": "diagnosis",
-    }
-    return mapping.get(difficulty, "diagnosis")
+TASK_TYPES = ["diagnosis", "calculation", "note_review"]
+
+
+def get_default_task_type(difficulty: str, rng: Random | None = None) -> str:
+    if rng is None:
+        rng = Random()
+    return rng.choice(TASK_TYPES)
 
 
 def _filter_by_difficulty(task_type: str, difficulty: str, cases: list[dict]) -> list[dict]:
