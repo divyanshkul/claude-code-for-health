@@ -11,245 +11,237 @@ tags:
   - openenv
 ---
 
-# Claude Code For Health Environment
+# Claude Code for Health
 
-A simple test environment that echoes back messages. Perfect for testing the env APIs as well as demonstrating environment usage patterns.
+A clinical terminal OpenEnv environment where an AI agent works through medical tasks by typing CLI commands - the same interaction pattern as Claude Code, OpenCode, and Codex CLI for software engineering, but applied to healthcare.
 
-## Quick Start
+Three task types across 15,000+ real medical cases, all programmatically graded with dense reward signals.
 
-The simplest way to use the Claude Code For Health environment is through the `ClaudeCodeForHealthEnv` class:
+## Motivation
 
+Medical errors are the third leading cause of death in the US. Training and evaluating AI agents on clinical reasoning is high-stakes but hard to benchmark - existing medical QA benchmarks (MedQA, USMLE) test static multiple-choice knowledge, not the sequential decision-making that real clinical work requires.
+
+This environment fills that gap. An agent must actively explore patient data, use reference tools, build hypotheses, and commit to decisions - mirroring how clinicians actually work. The CLI-tool metaphor (inspired by Claude Code / aider for software) maps naturally to clinical workflows: you don't see the full picture upfront, you order tests and interpret results step by step.
+
+Three task types test different cognitive demands - pattern recognition (note review), quantitative reasoning (calculations), and diagnostic reasoning (workup) - across 15,000+ real cases from peer-reviewed medical datasets.
+
+## Architecture
+
+![Architecture](assets/architecture.png)
+
+## Tasks
+
+| Task | Difficulty | Description | Dataset | Cases |
+|---|---|---|---|---|
+| **Clinical Note Review** | Easy | Read a clinical note, identify errors, correct them or approve | MEDEC | 3,360 |
+| **Medical Calculation** | Medium | Read a patient scenario, identify the formula, compute the answer | MedCalc-Bench | 11,338 |
+| **Diagnostic Workup** | Hard | Explore a patient chart via CLI tools, build a differential, confirm diagnosis | MedCaseReasoning | 766 |
+
+## Datasets
+
+- **MEDEC** - 3,360 clinical notes with annotated errors and corrections (3 splits: train / val / test)
+- **MedCalc-Bench** - 11,338 medical calculation problems with ground truth answers and tolerance bounds (train + test)
+- **MedCaseReasoning** - 766 structured clinical cases with demographics, vitals, labs, imaging, physical exam, and ground truth diagnoses (JSONL)
+
+## Action / Observation Space
+
+**Action** - single CLI command string per step:
 ```python
-from claude_code_for_health import ClaudeCodeForHealthAction, ClaudeCodeForHealthEnv
-
-try:
-    # Create environment from Docker image
-    claude_code_for_healthenv = ClaudeCodeForHealthEnv.from_docker_image("claude_code_for_health-env:latest")
-
-    # Reset
-    result = claude_code_for_healthenv.reset()
-    print(f"Reset: {result.observation.echoed_message}")
-
-    # Send multiple messages
-    messages = ["Hello, World!", "Testing echo", "Final message"]
-
-    for msg in messages:
-        result = claude_code_for_healthenv.step(ClaudeCodeForHealthAction(message=msg))
-        print(f"Sent: '{msg}'")
-        print(f"  → Echoed: '{result.observation.echoed_message}'")
-        print(f"  → Length: {result.observation.message_length}")
-        print(f"  → Reward: {result.reward}")
-
-finally:
-    # Always clean up
-    claude_code_for_healthenv.close()
+class MedAction(Action):
+    command: str  # e.g. "chart.labs CBC", "submit 25.2", "note.correct 5 Fixed text"
 ```
 
-That's it! The `ClaudeCodeForHealthEnv.from_docker_image()` method handles:
-- Starting the Docker container
-- Waiting for the server to be ready
-- Connecting to the environment
-- Container cleanup when you call `close()`
+**Observation** - command output + episode metadata:
+```python
+class MedObservation(Observation):
+    output: str                    # Command output text
+    error: str                     # Error message if command invalid
+    available_commands: list[str]  # Tools available for current task
+    task_type: str                 # diagnosis | calculation | note_review
+    step_number: int
+    max_steps: int                 # 50
+```
 
-## Building the Docker Image
+**State** - episode tracking:
+```python
+class MedState(State):
+    task_type: str
+    difficulty: str        # easy | medium | hard
+    total_score: float     # Cumulative reward
+    commands_issued: int
+    is_submitted: bool
+```
 
-Before using the environment, you need to build the Docker image:
+## Available Tools
+
+The environment simulates a real CLI tool interface - the same interaction pattern used by Claude Code, OpenCode, and Codex CLI for software engineering, but applied to clinical medicine. The agent issues text commands one at a time, receives structured output, and decides what to do next. No menus, no dropdowns - just a terminal and clinical judgment.
+
+### Diagnosis Tools
+```
+chart.history              View past medical history, medications, allergies
+chart.vitals               View vital signs
+chart.labs [panel]         View lab results (list panels or view specific)
+chart.imaging [type]       View imaging findings
+chart.exam [system]        View physical exam findings
+chart.medications          View current medications
+chart.allergies            View known allergies
+ddx.add <diagnosis>        Add to differential
+ddx.remove <diagnosis>     Remove from differential
+ddx.list                   Show current differential
+ddx.confirm <diagnosis>    Submit final diagnosis (ends episode)
+```
+
+### Calculation Tools
+```
+case.read                  Read the full patient note + question
+calculate <name>           Declare which calculator you're using
+submit <number>            Submit numeric answer (ends episode)
+```
+
+### Note Review Tools
+```
+note.read                  Read the clinical note with numbered sentences
+note.correct <id> <text>   Correct a sentence by ID
+note.approve               Approve note / submit corrections (ends episode)
+```
+
+### Reference Tools (all tasks)
+```
+reference.ranges <test>           Normal range lookup (e.g. sodium, troponin)
+reference.criteria <condition>    Diagnostic criteria (e.g. DKA, sepsis, PE)
+reference.drug_info <drug>        Drug mechanism, indications, contraindications
+interpret <test> <value>          Interpret a lab value against normal range
+```
+
+## Reward Design
+
+Dense rewards over the full trajectory. Every step can yield signal, not just the terminal action.
+
+| Task | Intermediate Budget | Terminal Budget | Total |
+|---|---|---|---|
+| Note Review | 0.10 (read note) | 0.90 (detection + correction quality) | 1.0 |
+| Calculation | 0.15 (read case + declare calculator) | 0.85 (numeric accuracy + correct calculator + efficiency) | 1.0 |
+| Diagnosis | 0.30 (chart exploration credit per relevant section) | 0.70 (diagnostic accuracy + workup completeness + efficiency + reasoning) | 1.0 |
+
+**Penalties:**
+- Protocol violations: -0.05 (imaging without vitals, confirming with <2 differentials, specialized labs without basic panels)
+- Duplicate tool calls: -0.05
+
+## Baseline Scores
+
+Model: `meta-llama/Llama-3.1-8B-Instruct` via HuggingFace Router (20 runs):
+
+| Task | Avg Score | Min | Max |
+|---|---|---|---|
+| Easy (note review) | 0.49 | 0.19 | 0.73 |
+| Medium (calculation) | 0.27 | 0.01 | 0.84 |
+| Hard (diagnosis) | 0.22 | 0.12 | 0.41 |
+
+## Example Episode (Diagnosis - Hard)
+
+```
+> reset(options={"task": "hard"})
+Patient: 45M, presenting with fever, rash, and joint pain
+Type 'help' for available tools.
+
+> chart.history                                        reward: +0.02
+PMH: None significant
+Medications: None
+Social: Non-smoker, occasional alcohol
+
+> chart.vitals                                         reward: +0.02
+BP: 130/85 | HR: 102 | Temp: 39.2C | RR: 18 | SpO2: 98%
+
+> chart.labs                                           reward: 0.00
+Available lab panels: CBC, BMP, inflammatory_markers, LFTs
+
+> chart.labs inflammatory_markers                      reward: +0.02
+inflammatory_markers:
+  ESR: 85 mm/hr
+  CRP: 12.4 mg/dL
+  Ferritin: 26,250 ng/mL
+
+> reference.ranges ferritin                            reward: 0.00
+FERRITIN: Normal range 12-300 ng/mL
+  Female 12-150, Male 12-300. Very high in HLH, Still disease
+
+> interpret ferritin 26250                             reward: 0.00
+FERRITIN 26250.0 ng/mL: HIGH - critically elevated (normal 12-300)
+  Female 12-150, Male 12-300. Very high in HLH, Still disease
+
+> reference.criteria hlh                               reward: 0.00
+HLH (HScore): Fever, organomegaly, cytopenias (2-3 lineages),
+hypertriglyceridemia (>=265) or hypofibrinogenemia (<=150),
+ferritin >=500 (often >10,000), elevated soluble CD25...
+
+> ddx.add HLH                                         reward: 0.00
+Added 'HLH'. Differential has 1 entry(ies).
+
+> ddx.add Adult-onset Still disease                    reward: 0.00
+Added 'Adult-onset Still disease'. Differential has 2 entry(ies).
+
+> ddx.confirm Adult-onset Still disease                reward: +0.34
+Diagnosis submitted: 'Adult-onset Still disease'. Score: 0.34
+
+[STATUS] DDX: [HLH, Adult-onset Still disease] | Step: 10/50
+Total episode score: 0.40
+```
+
+The agent earned intermediate rewards for each relevant chart section explored (+0.02 each), used reference tools to interpret the critically elevated ferritin (no reward, but informed its reasoning), built a 2-item differential (avoiding the -0.05 penalty), and got partial terminal credit for a close but not exact diagnosis match.
+
+## Setup
 
 ```bash
-# From project root
-docker build -t claude_code_for_health-env:latest -f server/Dockerfile .
+# Install
+uv sync
+
+# Run server
+uv run uvicorn server.app:app --port 8000
+
+# Run inference (set HF_TOKEN first)
+export HF_TOKEN="your_token"
+uv run python inference.py
 ```
 
-## Deploying to Hugging Face Spaces
-
-You can easily deploy your OpenEnv environment to Hugging Face Spaces using the `openenv push` command:
+## Docker
 
 ```bash
-# From the environment directory (where openenv.yaml is located)
-openenv push
-
-# Or specify options
-openenv push --namespace my-org --private
+docker build -t claude_code_for_health .
+docker run -p 8000:8000 claude_code_for_health
 ```
 
-The `openenv push` command will:
-1. Validate that the directory is an OpenEnv environment (checks for `openenv.yaml`)
-2. Prepare a custom build for Hugging Face Docker space (enables web interface)
-3. Upload to Hugging Face (ensuring you're logged in)
+## Environment Variables
 
-### Prerequisites
-
-- Authenticate with Hugging Face: The command will prompt for login if not already authenticated
-
-### Options
-
-- `--directory`, `-d`: Directory containing the OpenEnv environment (defaults to current directory)
-- `--repo-id`, `-r`: Repository ID in format 'username/repo-name' (defaults to 'username/env-name' from openenv.yaml)
-- `--base-image`, `-b`: Base Docker image to use (overrides Dockerfile FROM)
-- `--private`: Deploy the space as private (default: public)
-
-### Examples
-
-```bash
-# Push to your personal namespace (defaults to username/env-name from openenv.yaml)
-openenv push
-
-# Push to a specific repository
-openenv push --repo-id my-org/my-env
-
-# Push with a custom base image
-openenv push --base-image ghcr.io/meta-pytorch/openenv-base:latest
-
-# Push as a private space
-openenv push --private
-
-# Combine options
-openenv push --repo-id my-org/my-env --base-image custom-base:latest --private
-```
-
-After deployment, your space will be available at:
-`https://huggingface.co/spaces/<repo-id>`
-
-The deployed space includes:
-- **Web Interface** at `/web` - Interactive UI for exploring the environment
-- **API Documentation** at `/docs` - Full OpenAPI/Swagger interface
-- **Health Check** at `/health` - Container health monitoring
-- **WebSocket** at `/ws` - Persistent session endpoint for low-latency interactions
-
-## Environment Details
-
-### Action
-**ClaudeCodeForHealthAction**: Contains a single field
-- `message` (str) - The message to echo back
-
-### Observation
-**ClaudeCodeForHealthObservation**: Contains the echo response and metadata
-- `echoed_message` (str) - The message echoed back
-- `message_length` (int) - Length of the message
-- `reward` (float) - Reward based on message length (length × 0.1)
-- `done` (bool) - Always False for echo environment
-- `metadata` (dict) - Additional info like step count
-
-### Reward
-The reward is calculated as: `message_length × 0.1`
-- "Hi" → reward: 0.2
-- "Hello, World!" → reward: 1.3
-- Empty message → reward: 0.0
-
-## Advanced Usage
-
-### Connecting to an Existing Server
-
-If you already have a Claude Code For Health environment server running, you can connect directly:
-
-```python
-from claude_code_for_health import ClaudeCodeForHealthEnv
-
-# Connect to existing server
-claude_code_for_healthenv = ClaudeCodeForHealthEnv(base_url="<ENV_HTTP_URL_HERE>")
-
-# Use as normal
-result = claude_code_for_healthenv.reset()
-result = claude_code_for_healthenv.step(ClaudeCodeForHealthAction(message="Hello!"))
-```
-
-Note: When connecting to an existing server, `claude_code_for_healthenv.close()` will NOT stop the server.
-
-### Using the Context Manager
-
-The client supports context manager usage for automatic connection management:
-
-```python
-from claude_code_for_health import ClaudeCodeForHealthAction, ClaudeCodeForHealthEnv
-
-# Connect with context manager (auto-connects and closes)
-with ClaudeCodeForHealthEnv(base_url="http://localhost:8000") as env:
-    result = env.reset()
-    print(f"Reset: {result.observation.echoed_message}")
-    # Multiple steps with low latency
-    for msg in ["Hello", "World", "!"]:
-        result = env.step(ClaudeCodeForHealthAction(message=msg))
-        print(f"Echoed: {result.observation.echoed_message}")
-```
-
-The client uses WebSocket connections for:
-- **Lower latency**: No HTTP connection overhead per request
-- **Persistent session**: Server maintains your environment state
-- **Efficient for episodes**: Better for many sequential steps
-
-### Concurrent WebSocket Sessions
-
-The server supports multiple concurrent WebSocket connections. To enable this,
-modify `server/app.py` to use factory mode:
-
-```python
-# In server/app.py - use factory mode for concurrent sessions
-app = create_app(
-    ClaudeCodeForHealthEnvironment,  # Pass class, not instance
-    ClaudeCodeForHealthAction,
-    ClaudeCodeForHealthObservation,
-    max_concurrent_envs=4,  # Allow 4 concurrent sessions
-)
-```
-
-Then multiple clients can connect simultaneously:
-
-```python
-from claude_code_for_health import ClaudeCodeForHealthAction, ClaudeCodeForHealthEnv
-from concurrent.futures import ThreadPoolExecutor
-
-def run_episode(client_id: int):
-    with ClaudeCodeForHealthEnv(base_url="http://localhost:8000") as env:
-        result = env.reset()
-        for i in range(10):
-            result = env.step(ClaudeCodeForHealthAction(message=f"Client {client_id}, step {i}"))
-        return client_id, result.observation.message_length
-
-# Run 4 episodes concurrently
-with ThreadPoolExecutor(max_workers=4) as executor:
-    results = list(executor.map(run_episode, range(4)))
-```
-
-## Development & Testing
-
-### Direct Environment Testing
-
-Test the environment logic directly without starting the HTTP server:
-
-```bash
-# From the server directory
-python3 server/claude_code_for_health_environment.py
-```
-
-This verifies that:
-- Environment resets correctly
-- Step executes actions properly
-- State tracking works
-- Rewards are calculated correctly
-
-### Running Locally
-
-Run the server locally for development:
-
-```bash
-uvicorn server.app:app --reload
-```
+| Variable | Description | Default |
+|---|---|---|
+| `API_BASE_URL` | LLM endpoint | `https://router.huggingface.co/v1` |
+| `MODEL_NAME` | Model identifier | `meta-llama/Llama-3.1-8B-Instruct` |
+| `HF_TOKEN` | HuggingFace API key | (required) |
+| `IMAGE_NAME` | Docker image for `from_docker_image()` | (optional) |
 
 ## Project Structure
 
 ```
 claude_code_for_health/
-├── .dockerignore         # Docker build exclusions
-├── __init__.py            # Module exports
-├── README.md              # This file
-├── openenv.yaml           # OpenEnv manifest
-├── pyproject.toml         # Project metadata and dependencies
-├── uv.lock                # Locked dependencies (generated)
-├── client.py              # ClaudeCodeForHealthEnv client
-├── models.py              # Action and Observation models
+├── Dockerfile              # Container image definition
+├── openenv.yaml            # OpenEnv manifest
+├── pyproject.toml          # Dependencies
+├── inference.py            # Baseline inference script
+├── models.py               # MedAction, MedObservation, MedState
+├── client.py               # EnvClient wrapper
+├── __init__.py             # Module exports
+├── data/
+│   ├── MedCaseReasoning/   # Diagnosis cases (JSONL)
+│   ├── MedCalcBench/       # Calculation cases (CSV)
+│   ├── MEDEC/              # Note review cases (CSV)
+│   └── reference/          # Lab ranges, criteria, drug info (JSON)
 └── server/
-    ├── __init__.py        # Server module exports
-    ├── claude_code_for_health_environment.py  # Core environment logic
-    ├── app.py             # FastAPI application (HTTP + WebSocket endpoints)
-    └── Dockerfile         # Container image definition
+    ├── app.py              # FastAPI application
+    ├── claude_code_for_health_environment.py  # Core environment
+    ├── command_parser.py   # CLI command parsing
+    ├── data_loader.py      # Dataset loading
+    ├── task_configs.py     # Difficulty tiers + case selection
+    ├── graders.py          # Dense reward functions
+    ├── constants.py        # Reference data loader
+    └── ui.py               # Custom Gradio dashboard
 ```

@@ -22,7 +22,7 @@ from openai import OpenAI
 from claude_code_for_health import ClaudeCodeForHealthEnv, MedAction
 
 
-IMAGE_NAME = os.getenv("IMAGE_NAME") or os.getenv("LOCAL_IMAGE_NAME")
+IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME") or os.getenv("IMAGE_NAME")
 API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
 API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
 MODEL_NAME = os.getenv("MODEL_NAME") or "meta-llama/Llama-3.1-8B-Instruct"
@@ -192,7 +192,7 @@ async def main() -> None:
         if IMAGE_NAME:
             env = await ClaudeCodeForHealthEnv.from_docker_image(IMAGE_NAME)
         else:
-            env = ClaudeCodeForHealthEnv(base_url="http://localhost:8000")
+            env = ClaudeCodeForHealthEnv(base_url=os.getenv("ENV_BASE_URL", "http://localhost:8000"))
         await run_task(client, env, difficulty)
 
 
