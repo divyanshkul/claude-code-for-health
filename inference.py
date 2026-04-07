@@ -103,14 +103,11 @@ def clean_llm_output(text: str) -> str:
     return lines[0].strip()
 
 
-def get_agent_command(client: OpenAI, observation: str, task_type: str) -> str:
+def get_agent_command(client: OpenAI, messages: list[dict]) -> str:
     try:
         completion = client.chat.completions.create(
             model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"Task type: {task_type}\n\nEnvironment output:\n{observation}"},
-            ],
+            messages=messages,
             temperature=TEMPERATURE,
             max_tokens=MAX_TOKENS,
             stream=False,
@@ -135,20 +132,30 @@ async def run_task(client: OpenAI, env, difficulty: str) -> float:
         observation_text = result.observation.output
         task_type = result.observation.task_type
 
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": f"Task type: {task_type}\n\nEnvironment output:\n{observation_text}"},
+        ]
+
         for step in range(1, MAX_STEPS + 1):
             if result.done:
                 break
 
-            command = get_agent_command(client, observation_text, task_type)
+            command = get_agent_command(client, messages)
+
+            messages.append({"role": "assistant", "content": command})
+
             result = await env.step(MedAction(command=command))
 
             reward = result.reward or 0.0
             done = result.done
             error = result.observation.error or None
+            observation_text = result.observation.output
 
             rewards.append(reward)
             steps_taken = step
-            observation_text = result.observation.output
+
+            messages.append({"role": "user", "content": f"Environment output:\n{observation_text}"})
 
             log_step(step=step, action=command, reward=reward, done=done, error=error)
 
