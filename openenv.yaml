@@ -12,13 +12,13 @@ description: >
 
 tasks:
   - name: easy
-    description: "Simple clinical tasks — straightforward note reviews, basic calculations, or clear-cut diagnoses"
+    description: "Clinical note review — identify if a note is error-free or fix obvious errors"
     difficulty: easy
 
   - name: medium
-    description: "Moderate clinical tasks — multi-step calculations, non-obvious note errors, or differential-heavy diagnoses"
+    description: "Medical calculation — read a clinical scenario, identify the formula, compute the answer"
     difficulty: medium
 
   - name: hard
-    description: "Complex clinical tasks — scoring systems (APACHE, Wells), subtle pharmacotherapy errors, or rare diagnoses"
+    description: "Diagnostic workup — explore patient chart via CLI, build differential, confirm diagnosis"
     difficulty: hard
