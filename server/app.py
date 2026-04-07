@@ -8,9 +8,11 @@ except Exception as e:
 try:
     from ..models import MedAction, MedObservation
     from .claude_code_for_health_environment import ClaudeCodeForHealthEnvironment
+    from .ui import build_custom_dashboard
 except (ImportError, ModuleNotFoundError):
     from models import MedAction, MedObservation
     from server.claude_code_for_health_environment import ClaudeCodeForHealthEnvironment
+    from server.ui import build_custom_dashboard
 
 app = create_app(
     ClaudeCodeForHealthEnvironment,
@@ -18,6 +20,7 @@ app = create_app(
     MedObservation,
     env_name="claude_code_for_health",
     max_concurrent_envs=1,
+    gradio_builder=build_custom_dashboard,
 )
 
 
