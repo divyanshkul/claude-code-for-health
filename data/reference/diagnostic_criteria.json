@@ -1,0 +1,23 @@
+{
+  "dka": "DKA (Diabetic Ketoacidosis): pH <7.3, Serum bicarbonate <18 mEq/L, Blood glucose >250 mg/dL (or euglycemic if on SGLT2i), Positive serum/urine ketones, Anion gap >12. Severity: Mild (pH 7.25-7.30), Moderate (7.0-7.24), Severe (<7.0)",
+  "diabetic ketoacidosis": "DKA: pH <7.3, HCO3 <18, glucose >250, ketones positive, AG >12. Mild/Moderate/Severe by pH cutoffs 7.25/7.0",
+  "sepsis": "Sepsis (Sepsis-3): Suspected infection + SOFA score increase >=2. qSOFA (screening): >=2 of: RR >=22, altered mentation (GCS <15), SBP <=100 mmHg",
+  "sirs": "SIRS: >=2 of: Temp >38C or <36C, HR >90, RR >20 or PaCO2 <32, WBC >12k or <4k or >10% bands",
+  "pe": "Wells Criteria for PE: Clinical signs of DVT (+3), PE most likely (+3), HR >100 (+1.5), Immobilization/surgery (+1.5), Previous PE/DVT (+1.5), Hemoptysis (+1), Malignancy (+1). Low <2, Moderate 2-6, High >6",
+  "pulmonary embolism": "Wells Criteria: DVT signs (+3), PE most likely (+3), HR>100 (+1.5), immobilization (+1.5), prior PE/DVT (+1.5), hemoptysis (+1), cancer (+1). Score >4: consider CTPA",
+  "dvt": "Wells Criteria for DVT: Active cancer (+1), Paralysis/cast (+1), Bedridden >3d or surgery <12wk (+1), Tenderness along deep veins (+1), Entire leg swollen (+1), Calf >3cm (+1), Pitting edema (+1), Collateral veins (+1), Prior DVT (+1), Alternative dx as likely (-2). Low 0, Moderate 1-2, High >=3",
+  "heart failure": "Framingham Criteria for CHF: Major: PND, JVD, rales, cardiomegaly, S3, hepatojugular reflux, weight loss on diuretics. Minor: ankle edema, night cough, dyspnea on exertion, hepatomegaly, pleural effusion, HR>120. Diagnosis: 2 major OR 1 major + 2 minor",
+  "chf": "Framingham Criteria: 2 major criteria OR 1 major + 2 minor. BNP >400 supports dx. LVEF <40% = HFrEF, >=50% = HFpEF",
+  "mi": "STEMI: ST elevation >=1mm in >=2 contiguous leads (>=2mm in V1-V3). NSTEMI: Elevated troponin + ischemic symptoms without ST elevation. Type 1: plaque rupture. Type 2: demand ischemia",
+  "stroke": "NIH Stroke Scale for severity. CT head to rule out hemorrhage. tPA within 4.5h (NINDS criteria). Large vessel occlusion: consider thrombectomy within 24h",
+  "aki": "AKI (KDIGO): Stage 1: Cr increase >=0.3 mg/dL in 48h or 1.5-1.9x baseline. Stage 2: Cr 2.0-2.9x baseline. Stage 3: Cr >=3x baseline or Cr >=4.0 or initiation of RRT. Also UOP <0.5 mL/kg/h for 6h",
+  "ckd": "CKD: GFR <60 for >3 months. Stage 1: GFR>=90 (with kidney damage), Stage 2: 60-89, Stage 3a: 45-59, Stage 3b: 30-44, Stage 4: 15-29, Stage 5: <15",
+  "meningitis": "Bacterial meningitis: fever, nuchal rigidity, altered mental status (classic triad in ~44%). CSF: WBC >1000 (PMN predominant), protein >250, glucose <40 (or CSF/serum ratio <0.4), positive gram stain/culture. Kernig/Brudzinski signs. Empiric: ceftriaxone + vancomycin \u00b1 ampicillin (>50y or immunocompromised)",
+  "pancreatitis": "Acute pancreatitis: >=2 of 3: (1) Abdominal pain consistent with pancreatitis, (2) Serum lipase >=3x ULN, (3) Characteristic findings on imaging. Ranson criteria for severity. BISAP score for mortality",
+  "cirrhosis": "Child-Pugh Score: Bilirubin, Albumin, INR, Ascites, Encephalopathy. Class A: 5-6 (compensated), Class B: 7-9 (significant), Class C: 10-15 (decompensated). MELD for transplant prioritization",
+  "pneumonia": "CAP: CURB-65 for severity: Confusion, Urea >7, RR >=30, BP <90/60, Age >=65. Score 0-1: outpatient, 2: short stay, 3-5: ICU consideration. PSI/PORT score alternative",
+  "gout": "Gout: Monosodium urate crystals (needle-shaped, negatively birefringent). ACR/EULAR criteria: joint involvement, serum urate >6, acute episode features, tophi, imaging evidence",
+  "hlh": "HLH (HScore): Fever, organomegaly, cytopenias (2-3 lineages), hypertriglyceridemia (>=265) or hypofibrinogenemia (<=150), hemophagocytosis on biopsy, low/absent NK activity, ferritin >=500 (often >10,000), elevated soluble CD25",
+  "ards": "ARDS (Berlin Definition): Acute onset within 1 week, bilateral opacities on imaging, not fully explained by cardiac failure/fluid overload, PaO2/FiO2: Mild 200-300, Moderate 100-200, Severe <100 (with PEEP >=5)",
+  "dic": "DIC: Prolonged PT/PTT, low platelets, low fibrinogen, elevated D-dimer, schistocytes on smear. ISTH DIC score >=5 = overt DIC. Treat underlying cause. Acute (bleeding): replace factors. Chronic (clotting): anticoagulation"
+}
