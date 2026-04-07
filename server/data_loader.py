@@ -54,8 +54,14 @@ class DataLoader:
             with open(filepath, "r", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
-                    if row.get("Ground Truth Answer") and row["Ground Truth Answer"] != "None":
-                        cases.append(row)
+                    answer = row.get("Ground Truth Answer", "")
+                    if not answer or answer == "None":
+                        continue
+                    try:
+                        float(answer)
+                    except (ValueError, TypeError):
+                        continue
+                    cases.append(row)
         self._calculation_cases = cases
 
     def _load_notes(self, path: Path) -> None:
@@ -72,6 +78,8 @@ class DataLoader:
             with open(filepath, "r", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
+                    if not row.get("Text", "").strip() and not row.get("Sentences", "").strip():
+                        continue
                     flag = row.get("Error Flag", "0") or "0"
                     try:
                         row["Error Flag"] = int(float(flag))

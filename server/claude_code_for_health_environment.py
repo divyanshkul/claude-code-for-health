@@ -362,11 +362,18 @@ class ClaudeCodeForHealthEnvironment(Environment):
                 return f"Cannot parse '{args[0]}' as a number.", 0.0, False
 
             gt = self._ground_truth
+            try:
+                gt_answer = float(gt.get("answer", 0))
+                lower = float(gt.get("lower_limit", gt_answer))
+                upper = float(gt.get("upper_limit", gt_answer))
+            except (ValueError, TypeError):
+                gt_answer, lower, upper = 0.0, 0.0, 0.0
+
             terminal = graders.calculation_terminal_reward(
                 submitted_value=self._submitted_value,
-                ground_truth=float(gt.get("answer", 0)),
-                lower_limit=float(gt.get("lower_limit", gt.get("answer", 0))),
-                upper_limit=float(gt.get("upper_limit", gt.get("answer", 0))),
+                ground_truth=gt_answer,
+                lower_limit=lower,
+                upper_limit=upper,
                 calculator_used=self._calculator_used,
                 expected_calculator=gt.get("calculator_name", ""),
                 steps_taken=self._state.step_count,

@@ -86,10 +86,10 @@ def _header_html() -> str:
         '<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:'
         'wght@400;500;600;700&display=swap" rel="stylesheet">'
         '<div style="padding:12px 0 4px;display:flex;align-items:baseline;gap:10px;">'
-        '<span style="font-family:\'JetBrains Mono\',monospace;font-size:18px;'
+        '<span style="font-family:&#39;JetBrains Mono&#39;,monospace;font-size:18px;'
         'font-weight:700;color:#e2e8f0;letter-spacing:-0.03em;">'
         '\U0001f3e5 Clinical Terminal</span>'
-        '<span style="font-family:\'JetBrains Mono\',monospace;font-size:10px;'
+        '<span style="font-family:&#39;JetBrains Mono&#39;,monospace;font-size:10px;'
         'color:#3d4a5c;letter-spacing:0.08em;padding:2px 8px;'
         'border:1px solid rgba(255,255,255,0.06);border-radius:4px;">v1.0</span>'
         '</div>'
@@ -120,10 +120,10 @@ def _score_html(score: float) -> str:
     return (
         f'<div style="background:{bg};border:1px solid rgba(255,255,255,0.1);'
         'border-radius:10px;padding:20px;text-align:center;margin-bottom:10px;">'
-        '<div style="font-family:\'JetBrains Mono\',monospace;font-size:10px;'
+        '<div style="font-family:&#39;JetBrains Mono&#39;,monospace;font-size:10px;'
         'color:#8b949e;text-transform:uppercase;letter-spacing:2px;'
         'margin-bottom:8px;">Episode Score</div>'
-        f'<div style="font-family:\'JetBrains Mono\',monospace;font-size:38px;'
+        f'<div style="font-family:&#39;JetBrains Mono&#39;,monospace;font-size:38px;'
         f'font-weight:700;color:{color};font-variant-numeric:tabular-nums;'
         f'text-shadow:0 0 30px {glow},0 0 60px {glow};'
         f'letter-spacing:-0.02em;">{score:.2f}</div></div>'
@@ -157,19 +157,19 @@ def _status_html(
         f'<div style="margin-bottom:14px;"><span style="{lbl}">Task</span><br/>'
         f'<span style="display:inline-block;background:{badge_bg};'
         f'color:{badge_fg};padding:3px 10px;border-radius:5px;'
-        'font-family:\'JetBrains Mono\',monospace;font-size:12px;'
-        f'font-weight:600;margin-top:4px;">{task_type or "\u2014"}</span></div>'
+        'font-family:&#39;JetBrains Mono&#39;,monospace;font-size:12px;'
+        f'font-weight:600;margin-top:4px;">{task_type or chr(0x2014)}</span></div>'
         f'<div style="margin-bottom:14px;"><span style="{lbl}">Difficulty</span><br/>'
-        '<span style="font-family:\'JetBrains Mono\',monospace;font-size:13px;'
+        '<span style="font-family:&#39;JetBrains Mono&#39;,monospace;font-size:13px;'
         f'color:#c9d1d9;margin-top:2px;display:inline-block;">'
-        f'{difficulty or "\u2014"}</span></div>'
+        f'{difficulty or chr(0x2014)}</span></div>'
         f'<div><span style="{lbl}">Progress</span>'
         '<div style="display:flex;align-items:center;gap:8px;margin-top:6px;">'
         '<div style="flex:1;height:4px;background:rgba(255,255,255,0.08);'
         'border-radius:2px;overflow:hidden;">'
         f'<div style="width:{pct}%;height:100%;background:{bar_color};'
         'border-radius:2px;transition:width .4s ease;"></div></div>'
-        '<span style="font-family:\'JetBrains Mono\',monospace;font-size:11px;'
+        '<span style="font-family:&#39;JetBrains Mono&#39;,monospace;font-size:11px;'
         f'color:#8b949e;font-weight:600;">{step}/{max_steps}</span>'
         '</div></div></div>'
     )
@@ -183,12 +183,12 @@ def _commands_html(cmds: List[str]) -> str:
             '<div style="background:#151c28;border:1px solid rgba(255,255,255,0.1);'
             'border-radius:10px;padding:16px;">'
             f'<div style="{lbl}margin-bottom:8px;">Commands</div>'
-            '<p style="font-family:\'JetBrains Mono\',monospace;font-size:11px;'
+            '<p style="font-family:&#39;JetBrains Mono&#39;,monospace;font-size:11px;'
             'color:#6b7d94;margin:0;font-style:italic;">awaiting reset\u2026</p></div>'
         )
 
     items = "".join(
-        f'<div style="padding:4px 0;font-family:\'JetBrains Mono\',monospace;'
+        f'<div style="padding:4px 0;font-family:&#39;JetBrains Mono&#39;,monospace;'
         f'font-size:12px;color:#c9d1d9;border-bottom:1px solid rgba(255,255,255,0.05);">'
         f'<span style="color:#58a6ff;margin-right:6px;">\u203a</span>{c}</div>'
         for c in cmds
@@ -201,7 +201,7 @@ def _commands_html(cmds: List[str]) -> str:
     )
 
     items = "".join(
-        f'<div style="padding:3px 0;font-family:\'JetBrains Mono\',monospace;'
+        f'<div style="padding:3px 0;font-family:&#39;JetBrains Mono&#39;,monospace;'
         f'font-size:11px;color:#8b949e;border-bottom:1px solid rgba(255,255,255,0.03);">'
         f'<span style="color:#3d4a5c;margin-right:4px;">\u203a</span> {c}</div>'
         for c in cmds
@@ -258,11 +258,13 @@ def build_custom_dashboard(
         max_steps = obs.get("max_steps", 50)
         cmds = obs.get("available_commands", [])
 
+        pipe = "\u2502"
+        indented_output = output.replace(chr(10), chr(10) + " " + pipe + "  ")
         terminal = (
             f" \u250c\u2500 {task_type.upper()} \u2500\u2500 new episode\n"
-            f" \u2502\n"
-            f" \u2502  {output.replace(chr(10), chr(10) + ' \u2502  ')}\n"
-            f" \u2502\n"
+            f" {pipe}\n"
+            f" {pipe}  {indented_output}\n"
+            f" {pipe}\n"
             f" \u2514\u2500\u2500\u2500\n"
         )
 
