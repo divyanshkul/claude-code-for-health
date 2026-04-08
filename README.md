@@ -13,6 +13,8 @@ tags:
 
 # Claude Code for Health
 
+![Terminal](assets/terminal.png)
+
 A clinical terminal OpenEnv environment where an AI agent works through medical tasks by typing CLI commands - the same interaction pattern as Claude Code, OpenCode, and Codex CLI for software engineering, but applied to healthcare.
 
 Three task types across 15,000+ real medical cases, all programmatically graded with dense reward signals.
