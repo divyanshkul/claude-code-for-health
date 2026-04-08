@@ -19,9 +19,9 @@ Three task types across 15,000+ real medical cases, all programmatically graded 
 
 ## Motivation
 
-Medical errors are the third leading cause of death in the US. Training and evaluating AI agents on clinical reasoning is high-stakes but hard to benchmark - existing medical QA benchmarks (MedQA, USMLE) test static multiple-choice knowledge, not the sequential decision-making that real clinical work requires.
+India has one doctor for every 1,000 people, and in rural areas that ratio drops to 1:10,000+. Clinical AI has the potential to bridge this gap, not by replacing doctors, but by augmenting them with diagnostic support, calculation assistance, and documentation review. But building reliable clinical AI requires rigorous evaluation, and existing medical benchmarks only test static multiple-choice knowledge, not the sequential decision-making that real clinical work demands.
 
-This environment fills that gap. An agent must actively explore patient data, use reference tools, build hypotheses, and commit to decisions - mirroring how clinicians actually work. The CLI-tool metaphor (inspired by Claude Code / aider for software) maps naturally to clinical workflows: you don't see the full picture upfront, you order tests and interpret results step by step.
+This environment fills that gap. An agent must actively explore patient data, use reference tools, build hypotheses, and commit to decisions - mirroring how clinicians actually work in resource-constrained settings where you can't order every test upfront. The CLI-tool metaphor (inspired by Claude Code / OpenCode for software engineering) maps naturally to clinical workflows: you don't see the full picture upfront, you order tests, interpret results, and reason step by step.
 
 Three task types test different cognitive demands - pattern recognition (note review), quantitative reasoning (calculations), and diagnostic reasoning (workup) - across 15,000+ real cases from peer-reviewed medical datasets.
 
