@@ -247,3 +247,9 @@ claude_code_for_health/
     ├── constants.py        # Reference data loader
     └── ui.py               # Custom Gradio dashboard
 ```
+
+## Team
+
+- **Divyansh Kulshreshtha** - [GitHub](https://github.com/divyanshkul) | [LinkedIn](https://www.linkedin.com/in/divyanshkul)
+- **Siddhant Bharadwaj** - [GitHub](https://github.com/ignoreandfly) | [LinkedIn](https://www.linkedin.com/in/siddhant0701)
+- **Pratinav Seth** - [GitHub](https://github.com/pratinavseth) | [LinkedIn](https://www.linkedin.com/in/pratinav-seth/)
